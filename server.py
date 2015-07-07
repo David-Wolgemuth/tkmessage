@@ -3,6 +3,7 @@ import select
 from message import Message
 from tkui import *
 from constants import *
+import time
 
 class Server(tkWindow):
     def __init__(self, master):
@@ -11,6 +12,7 @@ class Server(tkWindow):
         self.listen_max = 5
 
     def get_information(self):
+        self.class_ = HOST_SERVER
         p_entry, p_label = self.make_port_entry()
         l_entry, l_label = self.make_port_entry(listening=True)
         submit = tk.Button(self.master, text='Submit',
@@ -43,6 +45,7 @@ class Server(tkWindow):
             self.terminal()
 
     def terminal(self):
+        self.master.geometry('+%s+%s' % (10, 500))
         self.make_message_box()
         m_entry, m_button = self.make_message_entry(broadcast=True)
         exit_ = tk.Button(self.master, text='Close Server',
@@ -51,6 +54,7 @@ class Server(tkWindow):
         exit_.grid(row=1, column=0)
         m_entry.grid(row=1, column=1)
         m_button.grid(row=1, column=2)
+        self.display_time()
         self.append(m_entry, m_button, exit_)
 
     def make_socket(self):
@@ -62,44 +66,49 @@ class Server(tkWindow):
 
     def accept_clients(self):
         connections = list(self.connections.values())
-        print(self.connections.keys())
         readers, writers, error = select.select(connections, [], [])
         for sock in readers:
             if sock == self.server:
                 client, address = self.server.accept()
-                name = client.recv(BUFFER)
-                m = Message(name)
-                self.connections[m.sender] = client
-                self.display_message(m.sender)
                 rm_thread = thr.Thread(target=self.relay_messages,
                                        args=(client,))
                 rm_thread.start()
+                time.sleep(1)
         if self.running:
             self.accept_clients()
 
     def relay_messages(self, client):
         in_ = client.recv(BUFFER)
-        print('in>>', in_)
-        m = Message(encoded=in_)
-        if m.args and EXIT in m.args:
+        if not in_:
             self.connections.pop(m.sender)
-        self.display_message('%s >> %s' % (m.sender, [HOST_SERVER if m.receiver == None
-                                                      else m.receiver][0]))
-        print('message', m.message)
-        self.display_message(m.message)
+            return
+        m = Message(encoded=in_)
+        ct = strftime('%T:%S')
+        log = ct
+        r = m.receiver if m.receiver else 'Server'
+        if m.args:
+            if m.args == JOIN_SERVER:
+                log = '%s %s connected' % (ct, m.sender)
+                self.connections[m.sender] = client
+        else:
+            log = '%s %s >> %s\n%s' % (ct, m.sender, r, m.message)
+        self.display_message(log)
         if m.receiver:
             self.connections[m.receiver].send(in_)
         if self.running:
             self.relay_messages(client)
 
-    def broadcast(self, message=None, args=None):
-        if message:
-            log = 'Message From Server: ' + str(message[:-1])
-            log += '\nSend to: '
+    def broadcast(self, entry=None, args=None):
+        log = '%s Server ' % strftime('%T:%S')
+        if entry:
+            message = entry.get(1.0, tk.END)
+            entry.delete(1.0, tk.END)
+            log += '>> '
         elif args == EXIT:
-            message = log = 'Server Closing'
+            log += 'Closing >> '
+            message = ''
         else:
-            return
+            raise ValueError('function must include tk.Entry or string arguments')
         for client in self.connections:
             m = Message(sender=HOST_SERVER, message=message, args=args)
             if client != HOST_SERVER:
@@ -108,12 +117,14 @@ class Server(tkWindow):
                 except:
                     log += '\n\t**ERROR** Unable to send to %s.' % client
                 else:
-                    log += client + ', '
+                    log += '%s | ' % client
+        log += '\n%s' % m.message
         self.display_message(log)
 
     def close_server(self):
         self.broadcast(args=EXIT)
         self.server.close()
+        self.display_message('Server Closed')
         self.running = False
 
 if __name__ == '__main__':

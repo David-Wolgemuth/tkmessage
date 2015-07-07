@@ -5,7 +5,9 @@ LEFT = 'left'
 RIGHT = 'right'
 EXIT = 'exit'
 HOST_SERVER = 'Server'
-JOIN_SERVER = 'join server'
+JOIN_SERVER = 'join_server'
+CLIENT = 'Client'
+DEFAULT_USERNAME = 'MonsterJam'
 
 def print_constants():
     print('\n%s:\n' % __doc__)

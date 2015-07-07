@@ -1,7 +1,7 @@
 import tkinter as tk
 import threading as thr
 from constants import *
-
+from time import strftime
 
 def simple_grid(*args):
     widgets = list(args)
@@ -15,6 +15,8 @@ class tkWindow:
         self.message_box = None
         self.running = True
         self.server = None
+        self.class_ = None
+        self.current_side = None
         self.port = DEFAULT_PORT
         self.widgets = []
 
@@ -47,11 +49,20 @@ class tkWindow:
         self.message_box.config(yscrollcommand=vbar.set)
         self.append(self.message_box, vbar)
 
+    def display_time(self):
+        if self.class_ == HOST_SERVER:
+            t = strftime('%Y:%m:%d  %T:%S')
+            m = 'Server Opened: ' + t
+        elif self.class_ == CLIENT:
+            t = strftime('%A %I:%M %p')
+            m = 'Joined Chat on ' + t
+        self.display_message(m, side=RIGHT)
+
     def display_message(self, message, side=LEFT):
         if side == LEFT:
             message = '\n' + str(message)
         elif side == RIGHT:
-            message = '\n' + (59 - len(message)) * ' ' + str(message)
+            message = '\n' + (58 - len(message)) * ' ' + str(message)
         self.message_box.insert(tk.END, message)
         self.message_box.see(tk.END)
 
@@ -71,18 +82,18 @@ class tkWindow:
         self.append(entry, label)
         return entry, label
 
-    def send_message(self, message, args=None):
+    def send_message(self, entry, args=None):
         self.broadcast(message, args=None)
 
-    def broadcast(self, message=None, args=None):
+    def broadcast(self, entry=None, args=None):
         pass
 
     def make_message_entry(self, broadcast=False):
         entry = tk.Text(self.master, width=40, height=2)
         if broadcast:
-            command = lambda: self.broadcast(entry.get(1.0, tk.END))
+            command = lambda: self.broadcast(entry)
         else:
-            command = lambda: self.send_message(entry.get(1.0, tk.END))
+            command = lambda: self.send_message(entry)
         button = tk.Button(self.master, text='Send Message', command=command)
         self.append(entry, button)
         return entry, button

@@ -15,12 +15,14 @@ class Client(tkWindow):
         self.server.connect((self.server_IP, int(self.port)))
 
     def get_information(self):
+        self.class_ = CLIENT
         p_entry, p_label = self.make_port_entry()
         ip_entry = tk.Entry(self.master)
         ip_entry.insert(0, self.server_IP)
         ip_label = tk.Label(self.master, text='Server IP')
         n_entry = tk.Entry(self.master)
         n_label = tk.Label(self.master, text='User Name')
+        n_entry.insert(0, DEFAULT_USERNAME)
         submit = tk.Button(self.master, text='Submit',
                            command=lambda: Client.setup(self, p_entry.get(),
                                                         ip_entry.get(),
@@ -47,8 +49,6 @@ class Client(tkWindow):
             raise error
         else:
             self.destroy_widgets()
-            m = Message(args='Joined_Server', sender=self.user_name)
-            self.send_message(m.encoded)
             thread = thr.Thread(target=self.receive_messages)
             thread.start()
             self.messenger()
@@ -62,6 +62,8 @@ class Client(tkWindow):
         r_button.grid(row=2, column=0)
         r_entry.grid(row=2, column=1)
         m_button.grid(row=2, column=2)
+        self.display_time()
+        self.send_message(args=JOIN_SERVER)
         self.append(m_entry, m_button, r_entry, r_button)
 
     def change_receivers(self):
@@ -80,27 +82,41 @@ class Client(tkWindow):
     def receive_messages(self):
         in_ = self.server.recv(BUFFER)
         m = Message(in_)
-        self.display_message(m.sender, side=LEFT)
-        self.display_message(m.message, side=LEFT)
         if m.args == EXIT:
             self.display_message('Server has been closed.')
             self.leave_server()
+        else:
+            if self.current_side != LEFT:
+                log = '%s [%s]' % (m.sender, strftime('%I:%M%p').lower())
+                self.display_message(log, side=LEFT)
+            self.display_message(' > %s' % m.message, side=LEFT)
+            self.current_side = LEFT
+
         if self.running:
             self.receive_messages()
 
-    def send_message(self, message, args=None):
+    def send_message(self, entry=None, args=None):
+        if entry:
+            message = entry.get(1.0, tk.END)
+            entry.delete(1.0, tk.END)
+            print(str.encode(message))
+        else:
+            message=None
         m = Message(message=message,
                     sender=self.user_name,
                     receiver=self.receiver,
                     args=args)
-        if self.message_box:
-            self.display_message(self.user_name, side=RIGHT)
-            self.display_message(message, side=RIGHT)
+        if self.message_box and m.message:
+            if self.current_side != RIGHT:
+                log = '[%s] %s' % (strftime('%I:%M%p').lower(), self.user_name)
+                self.display_message(log, side=RIGHT)
+            self.display_message('%s < ' % m.message, side=RIGHT)
+            self.current_side = RIGHT
         self.server.send(m.encoded)
 
     def leave_server(self, server=False):
         if server:
-            self.send_messages(message=None, args=EXIT)
+            self.send_messages(args=EXIT)
         self.server.close()
         self.running = False
 

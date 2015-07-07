@@ -22,13 +22,13 @@ class Message:
         (user-names cannot have spaces)
         """
         if isinstance(message, str):
+            if len(message) > 1 and message[-1] == '\n':
+                message = message[:-1]
             self.message = message
             self.encoded = None
-            print('string')
         elif isinstance(message, bytes):
             self.encoded = message
             self.message = None
-            print('bytes')
         else:
             self.message = None
             self.encoded = encoded
