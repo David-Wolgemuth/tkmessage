@@ -8,6 +8,12 @@ HOST_SERVER = 'Server'
 JOIN_SERVER = 'join_server'
 CLIENT = 'Client'
 DEFAULT_USERNAME = 'MonsterJam'
+LOGIN = 'Login'
+BAD_USERNAME = 'Bad_Username_or_Password'
+ACCEPTED = 'Username_and_Password_Accepted'
+CONTACTS = 'Contacts'
+INBOX = 'Inbox'
+NO_USER = 'Username Does Not Exist'
 
 def print_constants():
     print('\n%s:\n' % __doc__)

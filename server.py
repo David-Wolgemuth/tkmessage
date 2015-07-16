@@ -3,7 +3,9 @@ import select
 from message import Message
 from tkui import *
 from constants import *
+import shelve
 import time
+import pdb
 
 class Server(tkWindow):
     def __init__(self, master):
@@ -12,6 +14,7 @@ class Server(tkWindow):
         self.listen_max = 5
 
     def get_information(self):
+        """Grid tk.Entry, tk.Label for port and max listening"""
         self.class_ = HOST_SERVER
         p_entry, p_label = self.make_port_entry()
         l_entry, l_label = self.make_port_entry(listening=True)
@@ -77,21 +80,85 @@ class Server(tkWindow):
         if self.running:
             self.accept_clients()
 
+    def user_login(self, message, client):
+        usernames = shelve.open('server_info/usernames')
+        name = message.sender
+        log = ''
+        args = ''
+        if message.args[-1] == '1':  # New Username
+            if name not in usernames:
+                usernames[name] = message.message
+                log = 'Username and Password Created for %s' % name
+                with shelve.open('server_info/users/' + name) as user:
+                    user[CONTACTS] = []
+                    user[INBOX] = {}
+                args = ACCEPTED
+                self.connections[name] = client
+            else:
+                log = 'Username Already Exists'
+                args = BAD_USERNAME
+
+        elif message.args[-1] == '0':  # Existing Username
+            if name not in usernames:
+                log = 'Username Does Not Exist'
+                args = BAD_USERNAME
+            else:
+                if usernames[name] == message.message:  # Checking Passwords
+                    log = '%s Logged In' % name
+                    args = ACCEPTED
+                    self.connections[name] = client
+                else:
+                    log = 'Incorrect Username / Password'
+                    args = BAD_USERNAME
+
+        m = Message(sender=HOST_SERVER,
+                    receiver=name,
+                    message=log,
+                    args=args)
+        client.send(m.encoded)
+
+        usernames.close()
+        return log
+
+    def user_logs(self, username, info_requested):
+        with shelve.open('server_info/users/' + username) as user:
+            info = Message(sender=HOST_SERVER,
+                               args=info_requested,
+                               message=str(user[info_requested]))
+            self.connections[username].send(info.encoded)
+
     def relay_messages(self, client):
         in_ = client.recv(BUFFER)
         if not in_:
-            self.connections.pop(m.sender)
-            return
+            for key, value in self.connections.items():
+                if value == client:
+                    self.connections.pop(key)
+                    return
         m = Message(encoded=in_)
-        ct = strftime('%T:%S')
+        ct = strftime('%T:%S ')
         log = ct
         r = m.receiver if m.receiver else 'Server'
         if m.args:
-            if m.args == JOIN_SERVER:
-                log = '%s %s connected' % (ct, m.sender)
-                self.connections[m.sender] = client
+            if m.args.startswith(LOGIN):
+                log += self.user_login(m, client)  # Returns String
+            elif m.args == CONTACTS or m.args == INBOX:
+                self.user_logs(m.sender, m.args)
+                log += '%s sent %s' % (m.sender, m.args)
+            elif m.args.startswith(CONTACTS):
+                new = m.args[len(CONTACTS):]
+                with shelve.open('server_info/usernames') as usernames:
+                    if new not in usernames:
+                        a = Message(args=CONTACTS,
+                                    message=NO_USER)
+                        client.send(a.encoded)
+                    else:
+                        with shelve.open('server_info/users/' + m.sender,
+                                         writeback=True) as user:
+                            user[CONTACTS].append(new)
+                            a = Message(args=CONTACTS, message=new)
+                            client.send(a.encoded)
         else:
-            log = '%s %s >> %s\n%s' % (ct, m.sender, r, m.message)
+            log += '%s >> %s\n%s' % (m.sender, r, m.message)
         self.display_message(log)
         if m.receiver:
             self.connections[m.receiver].send(in_)
@@ -101,8 +168,8 @@ class Server(tkWindow):
     def broadcast(self, entry=None, args=None):
         log = '%s Server ' % strftime('%T:%S')
         if entry:
-            message = entry.get(1.0, tk.END)
-            entry.delete(1.0, tk.END)
+            message = entry.get()
+            entry.delete(0, tk.END)
             log += '>> '
         elif args == EXIT:
             log += 'Closing >> '

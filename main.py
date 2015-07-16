@@ -15,7 +15,7 @@ class ChooseClass(Server, Client):
         if class_ == HOST_SERVER:
             Server.get_information(self)
         elif class_ == JOIN_SERVER:
-            Client.get_information(self)
+            Client.server_information(self)
 
 root = tk.Tk()
 app = ChooseClass(root)

@@ -1,4 +1,3 @@
-
 def get_element(decoded):
     element = ''
     for i, char in enumerate(decoded):
