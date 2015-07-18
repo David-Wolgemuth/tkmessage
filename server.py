@@ -5,6 +5,7 @@ from tkui import *
 from constants import *
 import shelve
 import time
+import os
 import pdb
 
 class Server(tkWindow):
@@ -36,6 +37,12 @@ class Server(tkWindow):
     def setup(self, port, listening):
         self.port = port
         self.listen_max = listening
+        for directory in ['server_info', 'server_info/chats',
+                          'server_info/users']:
+            try:
+                os.mkdir(directory)
+            except FileExistsError as error:
+                pass
         try:
             self.make_socket()
         except Exception as error:
@@ -70,6 +77,9 @@ class Server(tkWindow):
     def accept_clients(self):
         connections = list(self.connections.values())
         readers, writers, error = select.select(connections, [], [])
+        if not readers:
+            print('oops?')
+            return
         for sock in readers:
             if sock == self.server:
                 client, address = self.server.accept()
@@ -91,7 +101,8 @@ class Server(tkWindow):
                 log = 'Username and Password Created for %s' % name
                 with shelve.open('server_info/users/' + name) as user:
                     user[CONTACTS] = []
-                    user[INBOX] = {}
+                    user[INBOX] = []
+                    user[PASSWORD] = message.message
                 args = ACCEPTED
                 self.connections[name] = client
             else:
@@ -123,9 +134,59 @@ class Server(tkWindow):
     def user_logs(self, username, info_requested):
         with shelve.open('server_info/users/' + username) as user:
             info = Message(sender=HOST_SERVER,
-                               args=info_requested,
-                               message=str(user[info_requested]))
+                           args=info_requested,
+                           message=str(user[info_requested]))
             self.connections[username].send(info.encoded)
+
+    def send_contacts(self, message):
+        client = self.connections[message.sender]
+        new = message.args[len(CONTACTS):]
+        with shelve.open('server_info/usernames') as usernames:
+            if new not in usernames:
+                error = Message(args=CONTACTS,
+                                message=NO_USER)
+                client.send(error.encoded)
+            else:
+                with shelve.open('server_info/users/' + message.sender,
+                                 writeback=True) as user:
+                    if new not in user[CONTACTS] and new != message.sender:
+                        user[CONTACTS].append(new)
+                        contact = Message(args=CONTACTS, message=new)
+                        client.send(contact.encoded)
+                    else:
+                        error = Message(args=CONTACTS,
+                                        message=EXISTING_CONTACT)
+                        client.send(error.encoded)
+
+    def send_chat_history(self, message):
+        file = 'server_info/chats/' + message.receiver
+        with shelve.open(file) as chat:
+            history = Message(args=MESSAGES,
+                              sender=HOST_SERVER,
+                              receiver=message.receiver,
+                              message=str(chat[MESSAGES]))
+            self.connections[message.sender].send(history.encoded)
+
+    def send_inbox(self, message):
+        file = 'server_info/users/' + message.sender
+        with shelve.open(file) as user:
+            inbox = Message(args=INBOX,
+                            message=str(user[INBOX]))
+            self.connections[message.sender].send(inbox.encoded)
+
+    def make_new_conversation(self, message):
+        if message.receiver not in os.listdir('server_info/chats'):
+            folder = 'server_info/chats/' + message.receiver
+            with shelve.open(folder) as chat:
+                chat[MESSAGES] = []
+                print(chat[MESSAGES])
+            for receiver in message.receiver.split(','):
+                file = 'server_info/users/' + receiver
+                with shelve.open(file) as user:
+                    inbox = user[INBOX]
+                    inbox.append(message.receiver)
+                    user[INBOX] = inbox
+        self.send_chat_history(message)
 
     def relay_messages(self, client):
         in_ = client.recv(BUFFER)
@@ -135,9 +196,10 @@ class Server(tkWindow):
                     self.connections.pop(key)
                     return
         m = Message(encoded=in_)
-        ct = strftime('%T:%S ')
+        ct = strftime('%T:%S ', time.gmtime(m.time))
         log = ct
         r = m.receiver if m.receiver else 'Server'
+        print(m.args, type(m.args))
         if m.args:
             if m.args.startswith(LOGIN):
                 log += self.user_login(m, client)  # Returns String
@@ -145,23 +207,28 @@ class Server(tkWindow):
                 self.user_logs(m.sender, m.args)
                 log += '%s sent %s' % (m.sender, m.args)
             elif m.args.startswith(CONTACTS):
-                new = m.args[len(CONTACTS):]
-                with shelve.open('server_info/usernames') as usernames:
-                    if new not in usernames:
-                        a = Message(args=CONTACTS,
-                                    message=NO_USER)
-                        client.send(a.encoded)
-                    else:
-                        with shelve.open('server_info/users/' + m.sender,
-                                         writeback=True) as user:
-                            user[CONTACTS].append(new)
-                            a = Message(args=CONTACTS, message=new)
-                            client.send(a.encoded)
+                self.send_contacts(m)
+            elif m.args == NEW_CONVO:
+                self.make_new_conversation(m)
+            elif m.args == INBOX:
+                self.send_inbox(m)
         else:
             log += '%s >> %s\n%s' % (m.sender, r, m.message)
         self.display_message(log)
-        if m.receiver:
-            self.connections[m.receiver].send(in_)
+        if m.receiver and m.message:
+            m.print()
+            for receiver in m.receiver.split(','):
+                if receiver != m.sender:
+                    try:
+                        print('here')
+                        self.connections[receiver].send(in_)
+                    except KeyError as error:
+                        print('%s not online' % error)
+            with shelve.open('server_info/chats/' + m.receiver) as chat:
+                c = chat[MESSAGES]
+
+                c.append([m.time, m.sender, m.message])
+                chat[MESSAGES] = c
         if self.running:
             self.relay_messages(client)
 
@@ -184,7 +251,7 @@ class Server(tkWindow):
                 except:
                     log += '\n\t**ERROR** Unable to send to %s.' % client
                 else:
-                    log += '%s | ' % client
+                    log += '%s,' % client
         log += '\n%s' % m.message
         self.display_message(log)
 

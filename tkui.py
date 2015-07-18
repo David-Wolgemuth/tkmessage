@@ -2,6 +2,7 @@ import tkinter as tk
 import threading as thr
 from constants import *
 from time import strftime
+import time as time
 
 def simple_grid(*args):
     """All widgets .grid()"""
@@ -70,6 +71,8 @@ class tkWindow:
 
     def display_message(self, message, side=LEFT):
         """Add text to main text box"""
+        if not self.message_box or not self.message_box.winfo_exists():
+            return
         if side == LEFT:
             message = '\n' + str(message)
         elif side == RIGHT:

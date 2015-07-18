@@ -57,7 +57,7 @@ class Client(tkWindow):
             self.user_information()
 
     def user_information(self):
-        valid = self.master.register(lambda x: not x.isspace())
+        valid = self.master.register(lambda x: not x.isspace() and x != ',')
         n_entry = tk.Entry(self.master, validate='key',
                            validatecommand=(valid, '%S'))
         n_entry.insert(0, DEFAULT_USERNAME)
@@ -97,26 +97,82 @@ class Client(tkWindow):
         self.append(m_entry, m_button, inbox)
 
     def display_inbox(self):
+        self.destroy_widgets()
+        self.receiver = None
+        i = lambda x: x.curselection()[0]
+        select = lambda x: x.get(i(x))
         self.inbox = tk.Listbox(self.master, width=50, height=8)
+        to_contacts = tk.Button(self.master, text='Contacts',
+                                command=self.contact_list)
+        i_button = tk.Button(self.master, text='Select',
+                             command=lambda: self.get_conversation(
+                                 select(self.inbox)))
+        self.inbox.grid()
+        to_contacts.grid()
+        i_button.grid()
+        self.append(to_contacts, self.inbox, i_button)
+        self.send_message(args=INBOX)
 
+    def fill_inbox(self, message):
+        inbox = eval(message.message)
+        for chat in inbox:
+            chat = ' '.join(chat.split(','))
+            self.inbox.insert(tk.END, chat)
 
-        contacts = tk.Button(self.master, text='Contacts',
-                             command=self.contact_list)
-        contacts.grid()
-        self.append(contacts)
-        # self.send_message(args=INBOX)
+    def get_conversation(self, receiver):
+        receiver = ','.join(receiver.split())
+        request = Message(args=NEW_CONVO,
+                          sender=self.user_name,
+                          receiver=receiver)
+        self.receiver = receiver
+        self.server.send(request.encoded)
+
+    def start_new_conversation(self, contacts):
+
+        contacts = list(contacts)
+        print(contacts)
+        contacts.append(self.user_name)
+        contacts = sorted(contacts)
+        receiver = contacts[0]
+        for contact in contacts[1:]:
+            receiver += ',' + contact
+        message = Message(args=NEW_CONVO,
+                          sender=self.user_name,
+                          receiver=receiver)
+        self.server.send(message.encoded)
+
+    def display_conversation(self, message):
+        self.destroy_widgets()
+        self.messenger()
+        history = eval(message.message)
+        last = None
+        for m in history:
+            side = RIGHT if m[1] == self.user_name else LEFT
+            if not last or last[1] != m[1]:
+                log = '[%s] %s' % (strftime('%I:%M%p', time.gmtime(m[0])).lower(), m[1])
+                self.display_message(log, side=side)
+            self.display_message(m[2], side=side)
+            last = m
 
     def contact_list(self):
+
         self.destroy_widgets()
-        valid = self.master.register(lambda x: not x.isspace())
+        i = lambda x: x.curselection()[0]
+        select = lambda x: x.get(i(x))
+        insertion = lambda x, y: x.insert(tk.END, select(y))
+        valid = self.master.register(lambda x: not x.isspace() and x != ',')
+
         self.contacts = tk.Listbox(self.master, width=30, height=8)
         new_convo = tk.Listbox(self.master, width=30, height=4)
         new_contact = tk.Entry(self.master, validate='key',
                                validatecommand=(valid, '%S'))
         add = tk.Button(self.master, text='>   Add   >',
-                        command=lambda: new_convo.insert(self.contacts.curselection()))
-        sub = tk.Button(self.master, text='<  Remove <')
-        start = tk.Button(self.master, text='Start Conversation')
+                        command=lambda: insertion(new_convo, self.contacts))
+        sub = tk.Button(self.master, text='<  Remove <',
+                        command=lambda: new_convo.delete(i(new_convo)))
+        start = tk.Button(self.master, text='Start Conversation',
+                          command=lambda: self.start_new_conversation(
+                              new_convo.get(0, tk.END)))
         add_new = tk.Button(self.master, text='Add New Contact',
                             command=lambda: self.add_contact(new_contact.get()))
 
@@ -136,8 +192,8 @@ class Client(tkWindow):
         self.send_message(args=CONTACTS + contact)
 
     def add_to_contacts(self, list_):
-        if list_ == NO_USER:
-            b = tk.Button(self.master, text=NO_USER,
+        if list_ == NO_USER or list_ == EXISTING_CONTACT:
+            b = tk.Button(self.master, text=list_,
                           command=lambda: b.destroy())
             b.grid()
             self.append(b)
@@ -150,13 +206,6 @@ class Client(tkWindow):
                 for contact in contacts:
                     self.contacts.insert(tk.END, contact)
 
-    def change_receivers(self):
-        """Return tk.Entry, tk.Button for writing recipient username"""
-        entry = tk.Entry(self.master)
-        button = tk.Button(self.master, text='Recipient UserName:',
-                           command=lambda: self.change_receiver(entry.get()))
-        return entry, button
-
     def change_receiver(self, receiver):
         """Call on change_receivers function, sets to new recipient"""
         self.sessions[self.receiver] = self.message_box.get(1.0, tk.END)
@@ -168,29 +217,36 @@ class Client(tkWindow):
     def receive_messages(self):
         """Receive and decode message from server, check for arguments"""
         in_ = self.server.recv(BUFFER)
-        m = Message(in_)
-        if m.args == EXIT:
-            self.display_message('Server has been closed.')
-            self.leave_server()
-        elif m.args == BAD_USERNAME:
-            b = tk.Button(self.master, command=lambda: b.destroy(),
-                          text=m.message)
-            self.append(b)
-            b.grid()
-        elif m.args == ACCEPTED:
-            self.user_name = m.receiver
-            self.destroy_widgets()
-            self.messenger()
-        elif m.args == CONTACTS:
-            self.add_to_contacts(m.message)
-        elif m.args.startswith(CONTACTS):
-            b = tk.Button(self.master, command=lambda: b.destroy(),
-                          text=m.message)
-            b.grid()
-            self.append(b)
-        else:
+        m = Message(encoded=in_)
+        if m.args:
+            if m.args == EXIT:
+                self.display_message('Server has been closed.')
+                self.leave_server()
+            elif m.args == BAD_USERNAME:
+                b = tk.Button(self.master, command=lambda: b.destroy(),
+                              text=m.message)
+                self.append(b)
+                b.grid()
+            elif m.args == ACCEPTED:
+                self.user_name = m.receiver
+                self.destroy_widgets()
+                self.messenger()
+            elif m.args == CONTACTS:
+                self.add_to_contacts(m.message)
+            elif m.args.startswith(CONTACTS):
+                b = tk.Button(self.master, command=lambda: b.destroy(),
+                              text=m.message)
+                b.grid()
+                self.append(b)
+            elif m.args == MESSAGES:
+                self.receiver = m.receiver
+                self.display_conversation(m)
+            elif m.args == INBOX:
+                self.fill_inbox(m)
+        elif m.receiver == self.receiver:
             if self.last_log.sender != m.sender:
-                log = '%s [%s]' % (m.sender, strftime('%I:%M%p').lower())
+                log = '%s [%s]' % (m.sender, strftime(
+                    '%I:%M%p', time.gmtime(m.time)).lower())
                 self.display_message(log, side=LEFT)
             self.display_message(' > %s' % m.message, side=LEFT)
             self.last_log = m
@@ -206,15 +262,16 @@ class Client(tkWindow):
             message = entry.get()
             entry.delete(0, tk.END)
         else:
-            message=None
+            message = ''
         m = Message(message=message,
                     sender=self.user_name,
                     receiver=self.receiver,
                     args=args)
 
-        if self.message_box and m.message:
+        if m.message:
             if self.last_log.sender != m.sender:
-                log = '[%s] %s' % (strftime('%I:%M%p').lower(), self.user_name)
+                log = '[%s] %s' % (strftime(
+                    '%I:%M%p', time.gmtime(m.time)).lower(), self.user_name)
                 self.display_message(log, side=RIGHT)
             self.display_message('%s < ' % m.message, side=RIGHT)
             self.last_log = m

@@ -12,6 +12,7 @@ class ChooseClass(Server, Client):
     def get_class(self, class_):
         self.destroy_widgets()
         self.class_ = class_
+        print('Class: ', class_)
         if class_ == HOST_SERVER:
             Server.get_information(self)
         elif class_ == JOIN_SERVER:

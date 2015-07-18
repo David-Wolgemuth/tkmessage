@@ -14,6 +14,10 @@ ACCEPTED = 'Username_and_Password_Accepted'
 CONTACTS = 'Contacts'
 INBOX = 'Inbox'
 NO_USER = 'Username Does Not Exist'
+EXISTING_CONTACT = 'Contact Already in Contact List'
+NEW_CONVO = 'New_Conversation'
+MESSAGES = 'messages'
+PASSWORD = 'password'
 
 def print_constants():
     print('\n%s:\n' % __doc__)
